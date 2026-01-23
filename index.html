@@ -1,0 +1,425 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="icon" href="data:">
+  <title>採光シミュレーター</title>
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #app { position: absolute; inset: 0; }
+    #ui {
+      position: absolute; left: 12px; top: 12px;
+      background: rgba(20, 20, 24, 0.78);
+      color: #fff; padding: 12px 12px 10px; border-radius: 12px;
+      width: 320px; box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+      backdrop-filter: blur(6px);
+    }
+    #ui h1 { font-size: 14px; margin: 0 0 10px; font-weight: 650; opacity: 0.95; }
+    .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; margin: 8px 0; }
+    .row label { font-size: 12px; opacity: 0.9; }
+    input[type="range"] { width: 100%; }
+    input, button { font: inherit; }
+    input[type="number"] { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; }
+    input[type="date"], input[type="time"] { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; }
+    button {
+      width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.12); color: #fff; cursor: pointer;
+    }
+    button:hover { background: rgba(255,255,255,0.18); }
+    .small { font-size: 11px; opacity: 0.85; line-height: 1.35; margin-top: 8px; }
+    .small a { font-color: white !important; }
+    .kv { font-size: 12px; opacity: 0.95; margin-top: 8px; }
+    .kv div { display: inline-block; margin-right: 4px; }
+    .pill {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22);
+      font-size: 11px; opacity: 0.95;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="ui">
+    <h1>採光シミュレーター</h1>
+
+    <div class="row">
+      <label>日付</label>
+      <input id="date" type="date" />
+    </div>
+
+    <div class="row">
+      <label>日付スライダー</label>
+      <input id="dSlider" type="range" min="0" max="365" />
+    </div>
+
+    <div class="row">
+      <label>時刻</label>
+      <input id="time" type="time" step="60" />
+    </div>
+
+    <div class="row">
+      <label>時刻スライダー</label>
+      <input id="tSlider" type="range" min="0" max="1439" value="720" />
+    </div>
+
+    <div class="row">
+      <label>緯度</label>
+      <input id="lat" type="number" step="0.0001" />
+    </div>
+
+    <div class="row">
+      <label>経度</label>
+      <input id="lon" type="number" step="0.0001" />
+    </div>
+
+    <div class="row">
+      <label>タイムゾーン</label>
+      <input id="tz" type="number" step="0.5" />
+    </div>
+
+    <div class="row">
+      <label>再生</label>
+      <button id="play">▶ 1日を自動再生</button>
+    </div>
+
+    <div class="kv">
+      <div>高度 <span class="pill" id="alt">-</span></div>
+      <div>方位角 <span class="pill" id="azi">-</span></div>
+      <div>状態 <span class="pill" id="state">-</span></div>
+    </div>
+
+    <div class="small">
+      <a href="https://github.com/code4fukui/soral-sim/">src on GitHub</a>
+    </div>
+  </div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://code4fukui.github.io/three.js/build/three.module.js",
+    "three/addons/": "https://code4fukui.github.io/three.js/examples/jsm/",
+    "three/nodes": "https://code4fukui.github.io/three.js/examples/jsm/nodes/Nodes.js"
+  }
+}
+</script>
+
+<script type="module">
+  import * as THREE from "three";
+  import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+  import { makeHouse } from "./makeHouse.js";
+
+  // -----------------------------
+  // Solar position (NO external libs)
+  // Based on simplified NOAA approach (good enough for visualization)
+  // Inputs: date/time local, lat lon, tz offset hours
+  // Outputs: altitude rad, azimuth rad (az: from North clockwise)
+  // -----------------------------
+  function deg2rad(d){ return d * Math.PI / 180; }
+  function rad2deg(r){ return r * 180 / Math.PI; }
+
+  // Day of year
+  function dayOfYear(dt){
+    const start = new Date(dt.getFullYear(), 0, 0);
+    const diff = dt - start;
+    const oneDay = 1000 * 60 * 60 * 24;
+    return Math.floor(diff / oneDay);
+  }
+
+  function solarPositionLocal(dtLocal, latDeg, lonDeg, tzHours){
+    // dtLocal: Date object interpreted as "local time" in provided tzHours.
+    // We compute the "fractional year" gamma using local time.
+    const doy = dayOfYear(dtLocal);
+
+    const hours = dtLocal.getHours() + dtLocal.getMinutes()/60 + dtLocal.getSeconds()/3600;
+
+    const gamma = 2 * Math.PI / 365 * (doy - 1 + (hours - 12)/24);
+
+    // equation of time (minutes)
+    const eqTime = 229.18 * (
+      0.000075
+      + 0.001868 * Math.cos(gamma)
+      - 0.032077 * Math.sin(gamma)
+      - 0.014615 * Math.cos(2*gamma)
+      - 0.040849 * Math.sin(2*gamma)
+    );
+
+    // solar declination (radians)
+    const decl = (
+      0.006918
+      - 0.399912 * Math.cos(gamma)
+      + 0.070257 * Math.sin(gamma)
+      - 0.006758 * Math.cos(2*gamma)
+      + 0.000907 * Math.sin(2*gamma)
+      - 0.002697 * Math.cos(3*gamma)
+      + 0.00148  * Math.sin(3*gamma)
+    );
+
+    // Time offset (minutes)
+    // 4min per degree + EoT; lonDeg positive east.
+    const timeOffset = eqTime + 4*lonDeg - 60*tzHours;
+
+    // True Solar Time (minutes)
+    let tst = hours*60 + timeOffset;
+    // wrap 0..1440
+    tst = ((tst % 1440) + 1440) % 1440;
+
+    // Hour angle (degrees)
+    let haDeg = (tst / 4) - 180;
+    if (haDeg < -180) haDeg += 360;
+    const ha = deg2rad(haDeg);
+
+    const lat = deg2rad(latDeg);
+
+
+    // Azimuth calculation (from North, clockwise)
+    // Using NOAA style:
+    // altitude は asin で直接（安定）
+    const sinAlt = Math.sin(lat)*Math.sin(decl) + Math.cos(lat)*Math.cos(decl)*Math.cos(ha);
+    const altitude = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+
+    // azimuth は「南基準」の式 → 「北基準(時計回り)」へ変換（安定）
+    const azSouth = Math.atan2(
+      Math.sin(ha),
+      Math.cos(ha)*Math.sin(lat) - Math.tan(decl)*Math.cos(lat)
+    );
+
+    // 北=0, 東=90, 南=180, 西=270 にしたいので +π して 0..2π に丸める
+    let azimuth = (azSouth + Math.PI) % (2*Math.PI);
+    if (azimuth < 0) azimuth += 2*Math.PI;
+
+    return { altitude, azimuth };
+  }
+
+  // -----------------------------
+  // Three.js scene
+  // -----------------------------
+  const mount = document.getElementById("app");
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  mount.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xbfd1e5);
+
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 500);
+  camera.position.set(18, 12, 18);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1.5, 0);
+  controls.enableDamping = true;
+
+  // Ambient + Sun
+  const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+  scene.add(ambient);
+
+  const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.camera.near = 1;
+  sunLight.shadow.camera.far = 120;
+  const s = 25;
+  sunLight.shadow.camera.left = -s;
+  sunLight.shadow.camera.right = s;
+  sunLight.shadow.camera.top = s;
+  sunLight.shadow.camera.bottom = -s;
+  scene.add(sunLight);
+
+  // helper: visualize sun direction
+  const sunSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(3.35, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xff3333 })
+  );
+  scene.add(sunSphere);
+
+  // Ground
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(20, 20),
+    new THREE.MeshStandardMaterial({ color: 0x9bb27a, roughness: 1.0, metalness: 0.0 })
+  );
+  ground.rotation.x = -Math.PI/2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Grid (subtle)
+  const grid = new THREE.GridHelper(80, 80, 0x000000, 0x000000);
+  grid.material.transparent = true;
+  grid.material.opacity = 0.12;
+  scene.add(grid);
+
+  const house = makeHouse();
+  scene.add(house);
+
+  // -----------------------------
+  // UI wiring
+  // -----------------------------
+  const elDate = document.getElementById("date");
+  const elSliderD = document.getElementById("dSlider");
+  const elTime = document.getElementById("time");
+  const elSlider = document.getElementById("tSlider");
+  const elLat = document.getElementById("lat");
+  const elLon = document.getElementById("lon");
+  const elTz = document.getElementById("tz");
+  const elAlt = document.getElementById("alt");
+  const elAzi = document.getElementById("azi");
+  const elState = document.getElementById("state");
+  const elPlay = document.getElementById("play");
+
+  // Defaults: Fukui-ish (you can change)
+  const now = new Date();
+  const pad2 = (n)=> String(n).padStart(2,"0");
+  elDate.value = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}`;
+  elTime.value = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  elSlider.value = now.getHours()*60 + now.getMinutes();
+  elSliderD.value = dayOfYear(buildLocalDate());
+  console.log(elDate.value, dayOfYear(buildLocalDate()), buildLocalDate())
+  
+  elLat.value = "36.06";  // 福井あたり
+  elLon.value = "136.22";
+  elTz.value = "9";
+
+  function sliderToTimeStr(mins){
+    const h = Math.floor(mins/60);
+    const m = mins % 60;
+    return `${pad2(h)}:${pad2(m)}`;
+  }
+  function sliderToDateStr(doy){
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 0);
+    const oneDay = 1000 * 60 * 60 * 24;
+    const dt = new Date(start.getTime() + doy * oneDay);
+    console.log(dt, doy);
+    return `${dt.getFullYear()}-${pad2(dt.getMonth()+1)}-${pad2(dt.getDate())}`;
+  }
+
+  function timeStrToMins(t){
+    const [h,m] = t.split(":").map(Number);
+    return (h*60 + m) | 0;
+  }
+
+  function buildLocalDate(){
+    // Create a Date object for the selected "local time" (in tzHours).
+    // We'll construct a Date in UTC then shift by tzHours so calculations use the intended local clock.
+    const [y,mo,d] = elDate.value.split("-").map(Number);
+    const [hh,mm] = elTime.value.split(":").map(Number);
+    // Interpret as UTC first:
+    const dt = new Date(Date.UTC(y, mo-1, d, hh, mm, 0));
+    // shift it so that dt.getHours() returns local clock values in tzHours when used in our formula
+    // Easiest: create a "fake local" Date object with same Y/M/D/H/M fields (using system local),
+    // but we only use dtLocal.getHours() etc, and dtLocal.getFullYear() etc.
+    // We'll just create a Date(y,mo-1,d,hh,mm,0) and pass tzHours separately. Good enough.
+    return new Date(y, mo-1, d, hh, mm, 0);
+  }
+
+  function updateSun(){
+    const lat = parseFloat(elLat.value);
+    const lon = parseFloat(elLon.value);
+    const tz = parseFloat(elTz.value);
+
+    const dtLocal = buildLocalDate();
+    const { altitude, azimuth } = solarPositionLocal(dtLocal, lat, lon, tz);
+
+    const altDeg = rad2deg(altitude);
+    const aziDeg = rad2deg(azimuth);
+
+    // Show status
+    const above = altitude > 0;
+    elAlt.textContent = `${altDeg.toFixed(1)}°`;
+    elAzi.textContent = `${aziDeg.toFixed(1)}°`;
+    elState.textContent = above ? "日中" : "夜";
+
+    // Place sun in scene
+    // Convention:
+    // - Azimuth from North clockwise.
+    // - In Three.js: we use +Z = south, +X = east, -Z = north.
+    // Convert to direction vector:
+    // az=0 => North (-Z), az=90 => East (+X), az=180 => South (+Z), az=270 => West (-X)
+    const r = 45; // distance of sun proxy
+    const x = r * Math.cos(altitude) * Math.sin(azimuth);
+    const y = r * Math.sin(altitude);
+    const z = -r * Math.cos(altitude) * Math.cos(azimuth);
+
+    // If below horizon, keep light very dim and place sphere below
+    sunSphere.position.set(x, y, z);
+
+    // DirectionalLight points FROM light position TO target
+    sunLight.position.set(x, Math.max(0.5, y), z);
+    sunLight.target.position.set(0, 0, 0);
+    sunLight.target.updateMatrixWorld();
+
+    // Light intensity / color feel
+    if (above) {
+      // simple intensity curve
+      const k = THREE.MathUtils.clamp(Math.sin(altitude), 0, 1);
+      sunLight.intensity = 0.2 + 1.2 * k;
+      ambient.intensity = 0.25 + 0.25 * k;
+      scene.background.set(0xbfd1e5);
+      //sunSphere.visible = true;
+    } else {
+      sunLight.intensity = 0.0;
+      ambient.intensity = 0.18;
+      scene.background.set(0x0c1220);
+      //sunSphere.visible = false;
+    }
+  }
+
+  // Sync time slider <-> time input
+  elSlider.addEventListener("input", () => {
+    elTime.value = sliderToTimeStr(parseInt(elSlider.value, 10));
+    updateSun();
+  });
+  elSliderD.addEventListener("input", () => {
+    elDate.value = sliderToDateStr(parseInt(elSliderD.value, 10));
+    updateSun();
+  });
+  elTime.addEventListener("input", () => {
+    elSlider.value = String(timeStrToMins(elTime.value));
+    updateSun();
+  });
+  elDate.addEventListener("input", updateSun);
+  elLat.addEventListener("input", updateSun);
+  elLon.addEventListener("input", updateSun);
+  elTz.addEventListener("input", updateSun);
+
+  // Autoplay (one day loop)
+  let playing = false;
+  let playHandle = null;
+
+  elPlay.addEventListener("click", () => {
+    playing = !playing;
+    elPlay.textContent = playing ? "⏸ 停止" : "▶ 1日を自動再生";
+    if (playing) {
+      let v = parseInt(elSlider.value, 10);
+      playHandle = setInterval(() => {
+        v = (v + 5) % 1440; // 5分刻み
+        elSlider.value = String(v);
+        elTime.value = sliderToTimeStr(v);
+        updateSun();
+      }, 80);
+    } else {
+      if (playHandle) clearInterval(playHandle);
+      playHandle = null;
+    }
+  });
+
+  // -----------------------------
+  // Render loop
+  // -----------------------------
+  updateSun();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Resize
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+</script>
+</body>
+</html>
