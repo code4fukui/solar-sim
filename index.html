@@ -75,7 +75,7 @@
     </div>
 
     <div class="row">
-      <label>再生</label>
+      <label>自動</label>
       <button id="play">▶ 1日を自動再生</button>
     </div>
 
@@ -386,21 +386,23 @@
 
   elPlay.addEventListener("click", () => {
     playing = !playing;
-    elPlay.textContent = playing ? "⏸ 停止" : "▶ 1日を自動再生";
+    elPlay.textContent = playing ? "⏸ 停止" : "▶ 再生";
     if (playing) {
       let v = parseInt(elSlider.value, 10);
       playHandle = setInterval(() => {
-        v = (v + 5) % 1440; // 5分刻み
+        const dt = 1; // 1分刻み
+        v = (v + dt) % 1440;
         elSlider.value = String(v);
         elTime.value = sliderToTimeStr(v);
         updateSun();
-      }, 80);
+      }, 1000 / 60);
     } else {
       if (playHandle) clearInterval(playHandle);
       playHandle = null;
     }
   });
-
+  elPlay.click(); // 自動再生
+  
   // -----------------------------
   // Render loop
   // -----------------------------
