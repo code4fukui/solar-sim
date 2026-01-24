@@ -15,7 +15,7 @@
     .row label { font-size: 12px; opacity: 0.9; }
     input[type="range"] { width: 100%; }
     input, button { font: inherit; }
-    input[type="number"] { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; }
+    input[type="number"], select { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; }
     input[type="date"], input[type="time"] { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff; }
     button {
       width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.25);
@@ -58,6 +58,11 @@
     <div class="row">
       <label>時刻スライダー</label>
       <input id="tSlider" type="range" min="0" max="1439" value="720" />
+    </div>
+
+    <div class="row">
+      <label>都道府県</label>
+      <select id="selpref"></select>
     </div>
 
     <div class="row">
@@ -106,6 +111,7 @@
   import * as THREE from "three";
   import { OrbitControls } from "three/addons/controls/OrbitControls.js";
   import { makeHouse } from "./makeHouse.js";
+  import { CSV } from "https://code4fukui.github.io/CSV/CSV.js";
 
   // -----------------------------
   // Solar position (NO external libs)
@@ -273,8 +279,22 @@
   elTime.value = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
   elSlider.value = now.getHours()*60 + now.getMinutes();
   elSliderD.value = dayOfYear(buildLocalDate());
-  console.log(elDate.value, dayOfYear(buildLocalDate()), buildLocalDate())
   
+  const prefjp = "https://code4fukui.github.io/localgovjp/prefjp-utf8.csv";
+  const prefs = await CSV.fetchJSON(prefjp);
+  for (const pref of prefs) {
+    const opt = document.createElement("option");
+    opt.textContent = pref.pref;
+    opt.value = pref.lat + "," + pref.lng;
+    selpref.appendChild(opt);
+  }
+  selpref.oninput = () => {
+    const ll = selpref.value.split(",");
+    elLat.value = ll[0];
+    elLon.value = ll[1];
+    updateSun();
+  };
+
   elLat.value = "36.06";  // 福井あたり
   elLon.value = "136.22";
   elTz.value = "9";
