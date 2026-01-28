@@ -282,16 +282,19 @@
   
   const prefjp = "https://code4fukui.github.io/localgovjp/prefjp-utf8.csv";
   const prefs = await CSV.fetchJSON(prefjp);
+  const defsel = localStorage.getItem("solar_sim.pref") ?? "福井県";
   for (const pref of prefs) {
     const opt = document.createElement("option");
     opt.textContent = pref.pref;
-    opt.value = pref.lat + "," + pref.lng;
+    opt.value = pref.lat + "," + pref.lng + "," + pref.pref;
     selpref.appendChild(opt);
+    if (pref.pref == defsel) opt.selected = true;
   }
   selpref.oninput = () => {
     const ll = selpref.value.split(",");
     elLat.value = ll[0];
     elLon.value = ll[1];
+    localStorage.setItem("solar_sim.pref", ll[2]);
     updateSun();
   };
 
