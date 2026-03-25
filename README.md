@@ -1,25 +1,29 @@
 # solar-sim
-日本語のREADMEはこちらです: [README.ja.md](README.ja.md)
 
-A Three.js-based solar simulation visualizer.
+採光シミュレーター
 
-## Demo
-You can try the live demo at [https://code4fukui.github.io/solar-sim/](https://code4fukui.github.io/solar-sim/).
+**Live demo**: https://code4fukui.github.io/solar-sim/
 
 ## Features
-- Visualize the position of the sun based on date, time, and location
-- Simulate the lighting inside a 3D room with windows
-- Automatically play through a full day
 
-## Requirements
-This project uses Three.js and the CSV library, which are imported via an import map.
+- CSV data parsing
 
-## Usage
-1. Clone the repository.
-2. Open the `index.html` file in a web browser.
+## Technology Stack
 
-## Data / API
-The project does not use any external data or APIs.
+**Browser modules (ES imports):**
+
+- [`CSV.js`](https://code4fukui.github.io/CSV/CSV.js)
+
+
+## Installation & Setup
+
+No build step required. Clone the repository and open `index.html` in a browser,
+or visit the live demo at https://code4fukui.github.io/solar-sim/
+
+## Contributing
+
+Contributions are welcome. Please open an issue or pull request on GitHub.
 
 ## License
-This project is licensed under the [MIT License](LICENSE).
+
+MIT License. See [LICENSE](./LICENSE) for details.
